@@ -89,6 +89,7 @@ import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultSet {
 
@@ -141,6 +142,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
   private @Nullable ResultSetMetaData rsMetaData;
   private final ResourceLock lock = new ResourceLock();
 
+  private Logger connectionLogger;
+  private boolean isLogLevelFinest;
+
   protected ResultSetMetaData createMetaData() throws SQLException {
     return new PgResultSetMetaData(connection, fields);
   }
@@ -176,13 +180,17 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
     this.resultsettype = rsType;
     this.resultsetconcurrency = rsConcurrency;
     this.adaptiveFetch = adaptiveFetch;
+    this.connectionLogger = this.connection.getLogger();
+    this.isLogLevelFinest = this.connectionLogger.isLoggable(Level.FINEST);
 
     // Constructor doesn't have fetch size and can't be sure if fetch size was used so initial value would be the number of rows
     this.lastUsedFetchSize = tuples.size();
   }
 
   public java.net.URL getURL(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getURL columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getURL columnIndex: {0}", columnIndex);
+    }
     checkClosed();
     throw org.postgresql.Driver.notImplemented(this.getClass(), "getURL(int)");
   }
@@ -1479,8 +1487,8 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
       }
     }
     String sqlText = selectSQL.toString();
-    if (connection.getLogger().isLoggable(Level.FINE)) {
-      connection.getLogger().log(Level.FINE, "selecting {0}", sqlText);
+    if (connectionLogger.isLoggable(Level.FINE)) {
+      connectionLogger.log(Level.FINE, "selecting {0}", sqlText);
     }
     // because updateable result sets do not yet support binary transfers we must request refresh
     // with updateable result set to get field data in correct format
@@ -1507,7 +1515,7 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
       castNonNull(rows).set(currentRow, castNonNull(rowBuffer));
       thisRow = rowBuffer;
 
-      connection.getLogger().log(Level.FINE, "done updates");
+      connectionLogger.log(Level.FINE, "done updates");
 
       rs.close();
     } finally {
@@ -1569,8 +1577,8 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
       }
 
       String sqlText = updateSQL.toString();
-      if (connection.getLogger().isLoggable(Level.FINE)) {
-        connection.getLogger().log(Level.FINE, "updating {0}", sqlText);
+      if (connectionLogger.isLoggable(Level.FINE)) {
+        connectionLogger.log(Level.FINE, "updating {0}", sqlText);
       }
       PreparedStatement updateStatement = null;
       try {
@@ -1595,11 +1603,11 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
       Tuple rowBuffer = castNonNull(this.rowBuffer, "rowBuffer");
       updateRowBuffer(null, rowBuffer, updateValues);
 
-      connection.getLogger().log(Level.FINE, "copying data");
+      connectionLogger.log(Level.FINE, "copying data");
       thisRow = rowBuffer.readOnlyCopy();
       rows.set(currentRow, rowBuffer);
 
-      connection.getLogger().log(Level.FINE, "done updates");
+      connectionLogger.log(Level.FINE, "done updates");
       updateValues.clear();
       doingUpdates = false;
     }
@@ -1777,23 +1785,23 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
       return true;
     }
 
-    connection.getLogger().log(Level.FINE, "checking if rs is updateable");
+    connectionLogger.log(Level.FINE, "checking if rs is updateable");
 
     parseQuery();
 
     if (tableName == null) {
-      connection.getLogger().log(Level.FINE, "tableName is not found");
+      connectionLogger.log(Level.FINE, "tableName is not found");
       return false;
     }
 
     if (!singleTable) {
-      connection.getLogger().log(Level.FINE, "not a single table");
+      connectionLogger.log(Level.FINE, "not a single table");
       return false;
     }
 
     usingOID = false;
 
-    connection.getLogger().log(Level.FINE, "getting primary keys");
+    connectionLogger.log(Level.FINE, "getting primary keys");
 
     //
     // Contains the primary key?
@@ -1821,7 +1829,7 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
           if (i == numPKcolumns && numPKcolumns > 0) {
             break;
           }
-          connection.getLogger().log(Level.FINE, "no of keys={0} from constraint {1}", new Object[]{i, lastConstraintName});
+          connectionLogger.log(Level.FINE, "no of keys={0} from constraint {1}", new Object[]{i, lastConstraintName});
         }
         i = 0;
         numPKcolumns = 0;
@@ -1847,14 +1855,14 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
     }
 
     rs.close();
-    connection.getLogger().log(Level.FINE, "no of keys={0} from constraint {1}", new Object[]{i, lastConstraintName});
+    connectionLogger.log(Level.FINE, "no of keys={0} from constraint {1}", new Object[]{i, lastConstraintName});
 
     /*
     it is only updatable if the primary keys are available in the resultset
      */
     updateable = (i == numPKcolumns) && (numPKcolumns > 0);
 
-    connection.getLogger().log(Level.FINE, "checking primary key {0}", updateable);
+    connectionLogger.log(Level.FINE, "checking primary key {0}", updateable);
 
     /*
       if we haven't found a primary key we can check to see if the query includes the oid
@@ -2312,7 +2320,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
   @Pure
   @Override
   public @Nullable String getString(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getString columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getString columnIndex: {0}", columnIndex);
+    }
     byte[] value = getRawValue(columnIndex);
     if (value == null) {
       return null;
@@ -2379,7 +2389,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
   @Pure
   @Override
   public boolean getBoolean(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getBoolean columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getBoolean columnIndex: {0}", columnIndex);
+    }
     byte[] value = getRawValue(columnIndex);
     if (value == null) {
       return false;
@@ -2404,7 +2416,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
 
   @Override
   public byte getByte(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getByte columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getByte columnIndex: {0}", columnIndex);
+    }
     byte[] value = getRawValue(columnIndex);
     if (value == null) {
       return 0; // SQL NULL
@@ -2461,7 +2475,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
 
   @Override
   public short getShort(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getShort columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getShort columnIndex: {0}", columnIndex);
+    }
     byte[] value = getRawValue(columnIndex);
     if (value == null) {
       return 0; // SQL NULL
@@ -2488,7 +2504,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
   @Pure
   @Override
   public int getInt(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getInt columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getInt columnIndex: {0}", columnIndex);
+    }
     byte[] value = getRawValue(columnIndex);
     if (value == null) {
       return 0; // SQL NULL
@@ -2516,7 +2534,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
   @Pure
   @Override
   public long getLong(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getLong columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getLong columnIndex: {0}", columnIndex);
+    }
     byte[] value = getRawValue(columnIndex);
     if (value == null) {
       return 0; // SQL NULL
@@ -2622,7 +2642,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
   @Pure
   @Override
   public float getFloat(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getFloat columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getFloat columnIndex: {0}", columnIndex);
+    }
     byte[] value = getRawValue(columnIndex);
     if (value == null) {
       return 0; // SQL NULL
@@ -2643,7 +2665,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
   @Pure
   @Override
   public double getDouble(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getDouble columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getDouble columnIndex: {0}", columnIndex);
+    }
     byte[] value = getRawValue(columnIndex);
     if (value == null) {
       return 0; // SQL NULL
@@ -2664,7 +2688,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
   @SuppressWarnings("deprecation")
   public @Nullable BigDecimal getBigDecimal(
       int columnIndex, int scale) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getBigDecimal columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getBigDecimal columnIndex: {0}", columnIndex);
+    }
     return (BigDecimal) getNumeric(columnIndex, scale, false);
   }
 
@@ -2728,7 +2754,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
   @Pure
   @Override
   public byte @Nullable [] getBytes(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getBytes columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getBytes columnIndex: {0}", columnIndex);
+    }
     byte[] value = getRawValue(columnIndex);
     if (value == null) {
       return null;
@@ -2747,25 +2775,33 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
 
   @Pure
   public java.sql.@Nullable Date getDate(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getDate columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getDate columnIndex: {0}", columnIndex);
+    }
     return getDate(columnIndex, null);
   }
 
   @Pure
   public @Nullable Time getTime(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getTime columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getTime columnIndex: {0}", columnIndex);
+    }
     return getTime(columnIndex, null);
   }
 
   @Pure
   public @Nullable Timestamp getTimestamp(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getTimestamp columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getTimestamp columnIndex: {0}", columnIndex);
+    }
     return getTimestamp(columnIndex, null);
   }
 
   @Pure
   public @Nullable InputStream getAsciiStream(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getAsciiStream columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getAsciiStream columnIndex: {0}", columnIndex);
+    }
     byte[] value = getRawValue(columnIndex);
     if (value == null) {
       return null;
@@ -2784,7 +2820,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
   @Pure
   @SuppressWarnings("deprecation")
   public @Nullable InputStream getUnicodeStream(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getUnicodeStream columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getUnicodeStream columnIndex: {0}", columnIndex);
+    }
     byte[] value = getRawValue(columnIndex);
     if (value == null) {
       return null;
@@ -2802,7 +2840,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
 
   @Pure
   public @Nullable InputStream getBinaryStream(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getBinaryStream columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getBinaryStream columnIndex: {0}", columnIndex);
+    }
     byte[] value = getRawValue(columnIndex);
     if (value == null) {
       return null;
@@ -2930,7 +2970,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
 
   @Override
   public @Nullable Object getObject(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getObject columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getObject columnIndex: {0}", columnIndex);
+    }
     Field field;
 
     byte[] value = getRawValue(columnIndex);
@@ -3846,7 +3888,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
   }
 
   public @Nullable RowId getRowId(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getRowId columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getRowId columnIndex: {0}", columnIndex);
+    }
     throw org.postgresql.Driver.notImplemented(this.getClass(), "getRowId(int)");
   }
 
@@ -3903,7 +3947,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
   }
 
   public @Nullable NClob getNClob(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getNClob columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getNClob columnIndex: {0}", columnIndex);
+    }
     throw org.postgresql.Driver.notImplemented(this.getClass(), "getNClob(int)");
   }
 
@@ -3948,7 +3994,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
 
   @Pure
   public @Nullable SQLXML getSQLXML(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getSQLXML columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getSQLXML columnIndex: {0}", columnIndex);
+    }
     String data = getString(columnIndex);
     if (data == null) {
       return null;
@@ -3970,7 +4018,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
   }
 
   public @Nullable String getNString(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getNString columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getNString columnIndex: {0}", columnIndex);
+    }
     throw org.postgresql.Driver.notImplemented(this.getClass(), "getNString(int)");
   }
 
@@ -3979,7 +4029,9 @@ public class PgResultSet implements ResultSet, org.postgresql.PGRefCursorResultS
   }
 
   public @Nullable Reader getNCharacterStream(@Positive int columnIndex) throws SQLException {
-    connection.getLogger().log(Level.FINEST, "  getNCharacterStream columnIndex: {0}", columnIndex);
+    if (isLogLevelFinest) {
+      connectionLogger.log(Level.FINEST, "  getNCharacterStream columnIndex: {0}", columnIndex);
+    }
     throw org.postgresql.Driver.notImplemented(this.getClass(), "getNCharacterStream(int)");
   }
 
